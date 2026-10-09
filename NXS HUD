@@ -1,0 +1,96 @@
+//@version=6
+indicator("NXS HUD", overlay=true)
+
+//══════════════════════════════════════════════════════════════════════════════
+// 1. CONTRACT HUD CONFIGURATION (TOP LEFT)
+//══════════════════════════════════════════════════════════════════════════════
+g_id = "🪧 Contract ID Settings"
+v_offset_top = input.int(2, "Top Offset (Push Down)", minval=0, maxval=20, group=g_id)
+hud_size     = input.string("huge", "Text Size", options=["tiny", "small", "normal", "large", "huge"], group=g_id)
+hud_col      = input.color(color.new(color.gray, 50), "Text Color", group=g_id)
+show_desc    = input.bool(false, "Show Full Contract Name instead of Ticker", group=g_id)
+
+//══════════════════════════════════════════════════════════════════════════════
+// 2. MACRO SNAPSHOT CONFIGURATION (BOTTOM LEFT)
+//══════════════════════════════════════════════════════════════════════════════
+g_mac = "🌐 Macro Snapshot Settings"
+show_mac     = input.bool(true, "Show Macro HUD", group=g_mac)
+v_offset_bot = input.int(1, "Bottom Offset (Push Up)", minval=0, maxval=20, group=g_mac)
+mac_size     = input.string("normal", "Macro Text Size", options=["tiny", "small", "normal", "large", "huge"], group=g_mac)
+
+mac_lbl_col  = input.color(color.new(color.gray, 50), "Macro Label Color", group=g_mac)
+mac_txt_col  = input.color(color.new(color.white, 0), "Macro Data Color", group=g_mac)
+mac_bg_col   = input.color(color.new(color.black, 100), "Macro Background Color", group=g_mac)
+mac_bord_col = input.color(color.new(color.gray, 80), "Macro Border Color", group=g_mac)
+
+sym_q = input.symbol("NASDAQ:QQQ", "QQQ Ticker", group=g_mac)
+sym_s = input.symbol("AMEX:SPY", "SPY Ticker", group=g_mac)
+sym_x = input.symbol("SP:SPX",   "SPX Ticker", group=g_mac)
+
+//══════════════════════════════════════════════════════════════════════════════
+// 3. DATA PIPELINE (RTH ENFORCEMENT)
+//══════════════════════════════════════════════════════════════════════════════
+// Force the engine to strictly look at the 9:30 AM - 4:00 PM session
+rth_q = ticker.modify(sym_q, session.regular)
+rth_s = ticker.modify(sym_s, session.regular)
+rth_x = ticker.modify(sym_x, session.regular)
+
+// Pull the strictly RTH daily open and live close in weightless tuples
+[q_open, q_live] = request.security(rth_q, "D", [open, close])
+[s_open, s_live] = request.security(rth_s, "D", [open, close])
+[x_open, x_live] = request.security(rth_x, "D", [open, close])
+
+//══════════════════════════════════════════════════════════════════════════════
+// 4. RENDER ENGINE (DUAL TABLES)
+//══════════════════════════════════════════════════════════════════════════════
+// Top Left Table (1x1 - No Borders)
+var table id_hud = table.new(position.top_left, columns=1, rows=1, bgcolor=color.new(color.black, 100), frame_color=color.new(color.black, 100), frame_width=0)
+
+// Bottom Left Table (3 Columns, 3 Rows - Hard Grid Architecture)
+var table mac_hud = table.new(position.bottom_left, columns=3, rows=3, bgcolor=mac_bg_col, border_color=mac_bord_col, border_width=1)
+
+if barstate.islast
+    // --- Process Top HUD ---
+    string raw_id = show_desc ? syminfo.description : syminfo.ticker
+    string final_id = ""
+    if v_offset_top > 0
+        for i = 1 to v_offset_top
+            final_id += "\n"
+    final_id += raw_id
+    
+    table.cell(id_hud, 0, 0, final_id, text_color=hud_col, text_size=hud_size, text_halign=text.align_left)
+    
+    // --- Process Bottom HUD ---
+    if show_mac
+        // Format the decoupled data strings
+        string open_q = "O: " + str.tostring(q_open, "#.00")
+        string live_q = "L: " + str.tostring(q_live, "#.00")
+        
+        string open_s = "O: " + str.tostring(s_open, "#.00")
+        string live_s = "L: " + str.tostring(s_live, "#.00")
+        
+        string open_x = "O: " + str.tostring(x_open, "#.00")
+        string live_x = "L: " + str.tostring(x_live, "#.00")
+        
+        // Handle bottom offsets by injecting blank lines into all 3 columns of the bottom row (SPX)
+        string lbl_x = "SPX"
+        if v_offset_bot > 0
+            for i = 1 to v_offset_bot
+                lbl_x  += "\n" 
+                open_x += "\n"
+                live_x += "\n"
+
+        // Row 0: QQQ (Col 0: Label, Col 1: Open, Col 2: Live)
+        table.cell(mac_hud, 0, 0, "QQQ", text_color=mac_lbl_col, text_size=mac_size, text_halign=text.align_left)
+        table.cell(mac_hud, 1, 0, open_q, text_color=mac_txt_col, text_size=mac_size, text_halign=text.align_right)
+        table.cell(mac_hud, 2, 0, live_q, text_color=mac_txt_col, text_size=mac_size, text_halign=text.align_right)
+
+        // Row 1: SPY
+        table.cell(mac_hud, 0, 1, "SPY", text_color=mac_lbl_col, text_size=mac_size, text_halign=text.align_left)
+        table.cell(mac_hud, 1, 1, open_s, text_color=mac_txt_col, text_size=mac_size, text_halign=text.align_right)
+        table.cell(mac_hud, 2, 1, live_s, text_color=mac_txt_col, text_size=mac_size, text_halign=text.align_right)
+
+        // Row 2: SPX
+        table.cell(mac_hud, 0, 2, lbl_x, text_color=mac_lbl_col, text_size=mac_size, text_halign=text.align_left)
+        table.cell(mac_hud, 1, 2, open_x, text_color=mac_txt_col, text_size=mac_size, text_halign=text.align_right)
+        table.cell(mac_hud, 2, 2, live_x, text_color=mac_txt_col, text_size=mac_size, text_halign=text.align_right)
